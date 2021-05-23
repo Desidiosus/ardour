@@ -3,7 +3,7 @@
  * Copyright (C) 2005-2006 Taybin Rutkin <taybin@taybin.com>
  * Copyright (C) 2008-2011 David Robillard <d@drobilla.net>
  * Copyright (C) 2009-2011 Carl Hetherington <carl@carlh.net>
- * Copyright (C) 2014-2019 Robin Gareus <robin@gareus.org>
+ * Copyright (C) 2014-2021 Robin Gareus <robin@gareus.org>
  * Copyright (C) 2018 Ben Loftis <ben@harrisonconsoles.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,10 +33,12 @@
 #include <string>
 #include <set>
 #include <boost/utility.hpp>
+#include <boost/container/set.hpp>
 
 #include "ardour/libardour_visibility.h"
 #include "ardour/types.h"
 #include "ardour/plugin.h"
+#include "ardour/plugin_scan_result.h"
 
 namespace ARDOUR {
 
@@ -78,6 +80,8 @@ public:
 
 	static uint32_t cache_version ();
 	bool cache_valid () const;
+
+	void scan_log (std::vector<PluginScanLogEntry>&) const;
 
 	/* always return LXVST for any VST subtype */
 	static PluginType to_generic_vst (const PluginType);
@@ -145,6 +149,9 @@ public:
 	PBD::Signal3<void, ARDOUR::PluginType, std::string, std::string> PluginTagChanged; //PluginType t, string id, string tag
 
 private:
+
+	typedef boost::container::set<PluginScanLogEntry> PluginScanLog;
+	PluginScanLog _plugin_scan_log;
 
 	struct PluginTag {
 		PluginType const  type;
@@ -246,6 +253,9 @@ private:
 	void load_tags ();
 	void load_stats ();
 
+	void load_scanlog ();
+	void save_scanlog ();
+
 	std::string sanitize_tag (const std::string) const;
 
 	void ladspa_refresh ();
@@ -277,7 +287,7 @@ private:
 	int vst3_discover (std::string const& path, bool cache_only = false);
 #ifdef VST3_SUPPORT
 	void vst3_plugin (std::string const& module_path, VST3Info const&);
-	bool run_vst3_scanner_app (std::string bundle_path) const;
+	bool run_vst3_scanner_app (std::string bundle_path, PluginScanLogEntry&) const;
 #endif
 
 	int lxvst_discover_from_path (std::string path, bool cache_only = false);
