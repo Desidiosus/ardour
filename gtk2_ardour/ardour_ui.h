@@ -111,6 +111,7 @@
 #include "location_ui.h"
 #include "lua_script_manager.h"
 #include "plugin_dspload_window.h"
+#include "plugin_manager_ui.h"
 #include "rc_option_editor.h"
 #include "route_dialogs.h"
 #include "route_params_ui.h"
@@ -137,6 +138,7 @@ class SpeakerDialog;
 class GlobalPortMatrixWindow;
 class IdleOMeter;
 class PluginDSPLoadWindow;
+class PluginManagerUI;
 class TransportMastersWindow;
 class VirtualKeyboardWindow;
 #endif
@@ -723,6 +725,7 @@ private:
 	WM::Proxy<LuaScriptManager> lua_script_window;
 	WM::Proxy<IdleOMeter> idleometer;
 	WM::Proxy<PluginDSPLoadWindow> plugin_dsp_load_window;
+	WM::Proxy<PluginManagerUI> plugin_manager_ui;
 	WM::Proxy<TransportMastersWindow> transport_masters_window;
 
 	/* Windows/Dialogs that require a creator method */

@@ -605,6 +605,7 @@
 #if 0
       <menuitem action='toggle-speaker-config'/>
 #endif
+      <menuitem action='toggle-plugin-manager'/>
       <menuitem action='toggle-plugin-dsp-load'/>
 #if 0
       <menuitem action='toggle-idle-o-meter'/>
