@@ -890,6 +890,7 @@ Playlist::remove_gaps (samplepos_t gap_threshold, samplepos_t leave_gap, boost::
 	RegionList::iterator i;
 	RegionList::iterator nxt (regions.end());
 	bool closed = false;
+	boost::function<void (Playlist&)> null_ripple_callback;
 
 	if (regions.size() < 2) {
 		return;
@@ -918,7 +919,7 @@ Playlist::remove_gaps (samplepos_t gap_threshold, samplepos_t leave_gap, boost::
 
 		const samplepos_t shift = gap - leave_gap;
 
-		ripple_unlocked ((*nxt)->position(), -shift, 0, rlock.thawlist, false);
+		ripple_unlocked ((*nxt)->position(), -shift, 0, null_ripple_callback, rlock.thawlist, false);
 
 		gap_callback ((*nxt)->position(), shift);
 
@@ -1685,14 +1686,14 @@ Playlist::splice_unlocked (samplepos_t at, samplecnt_t distance, boost::shared_p
 }
 
 void
-Playlist::ripple_locked (samplepos_t at, samplecnt_t distance, RegionList* exclude)
+Playlist::ripple_locked (samplepos_t at, samplecnt_t distance, RegionList* exclude, RippleCallback ripple_callback)
 {
 	RegionWriteLock rl (this);
-	ripple_unlocked (at, distance, exclude, rl.thawlist);
+	ripple_unlocked (at, distance, exclude, ripple_callback, rl.thawlist);
 }
 
 void
-Playlist::ripple_unlocked (samplepos_t at, samplecnt_t distance, RegionList* exclude, ThawList& thawlist, bool notify)
+Playlist::ripple_unlocked (samplepos_t at, samplecnt_t distance, RegionList* exclude, RippleCallback ripple_callback, ThawList& thawlist, bool notify)
 {
 	if (distance == 0) {
 		return;
@@ -1724,6 +1725,8 @@ Playlist::ripple_unlocked (samplepos_t at, samplecnt_t distance, RegionList* exc
 	}
 
 	_rippling = false;
+
+	ripple_callback (*this);
 
 	if (notify) {
 		notify_contents_changed ();
@@ -3029,7 +3032,7 @@ Playlist::shuffle (boost::shared_ptr<Region> region, int dir)
 }
 
 bool
-    Playlist::region_is_shuffle_constrained (boost::shared_ptr<Region>)
+Playlist::region_is_shuffle_constrained (boost::shared_ptr<Region>)
 {
 	RegionReadLock rlock (const_cast<Playlist*> (this));
 
@@ -3041,9 +3044,9 @@ bool
 }
 
 void
-Playlist::ripple (samplepos_t at, samplecnt_t distance, RegionList* exclude)
+Playlist::ripple (samplepos_t at, samplecnt_t distance, RegionList* exclude, RippleCallback ripple_callback)
 {
-	ripple_locked (at, distance, exclude);
+	ripple_locked (at, distance, exclude, ripple_callback);
 }
 
 void
@@ -3522,4 +3525,14 @@ void
 Playlist::set_capture_insertion_in_progress (bool yn)
 {
 	_capture_insertion_underway = yn;
+}
+
+void
+Playlist::rdiff_and_add_command (Session* session)
+{
+
+	vector<Command*> cmds;
+	rdiff (cmds);
+	session->add_commands (cmds);
+	session->add_command (new StatefulDiffCommand (shared_from_this ()));
 }
