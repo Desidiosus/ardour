@@ -51,7 +51,7 @@ def build(bld):
             'LIBARDOUR="' + bld.env['lwrcase_dirname'] + '"',
             'LOCALEDIR="' + os.path.join(os.path.normpath(bld.env['DATADIR']), 'locale') + '"',
             ]
-        obj.use = [ 'libpbd' ]
+        obj.use = [ 'libpbd', 'libtemporal', 'libevoral' ]
         obj.uselib = 'GIOMM DL UUID ARCHIVE CURL XML'
 
         if sys.platform == 'darwin':
@@ -70,37 +70,20 @@ def build(bld):
         return
 
     if bld.is_defined('WINDOWS_VST_SUPPORT') and bld.env['build_target'] != 'mingw':
-        # wine exec wrapper script
-        obj = bld(features = 'subst')
-        obj.source = 'scanner.wine'
-        obj.target = 'ardour-vst-scanner'
-        obj.chmod  = Utils.O755
-        obj.install_path = os.path.join(bld.env['LIBDIR'])
-        obj.VERSION = bld.env['VERSION']
-
-        obj = bld (features = 'c cxx cxxprogram wine')
-        obj.source = (
-            'scanner.cc',
-            'vstwin.c',
-            )
-        obj.linkflags = ['-mwindows', '-Wl,--export-dynamic']
-        obj.linkflags += bld.env['LDFLAGS']
-        obj.target = 'ardour-vst-scanner.exe.so'
-        obj.uselib = ['GIOMM', 'DL']
-        obj.use = [ 'libpbd' ]
-        obj.cxxflags = [  bld.env['compiler_flags_dict']['pic'] ]
+        # wine is no longer supported
+        return
     else:
         obj = bld (features = 'cxx c cxxprogram')
-        obj.source = ( 'scanner.cc' )
+        obj.source = ( 'vst2-scanner.cc' )
         obj.target = 'ardour-vst-scanner'
         if bld.is_defined('WINDOWS_VST_SUPPORT'):
             bld (features = 'c', name='vstwin', source='vstwin.c', uselib = 'GIOMM', includes  = [ '../pbd/', '../ardour/', '.' ])
             obj.uselib = ['GIOMM', 'DL', 'GDI32']
             obj.linkflags = ['-mwindows']
-            obj.use = [ 'libpbd', 'vstwin' ]
+            obj.use = [ 'libpbd', 'libtemporal', 'libevoral', 'vstwin' ]
         else:
             obj.uselib = ['GIOMM', 'DL', 'OSX', 'XML', 'ARCHIVE', 'CURL']
-            obj.use = [ 'libpbd' ]
+            obj.use = [ 'libpbd', 'libtemporal', 'libevoral' ]
 
     obj.includes  = [ '../pbd/', '../ardour/', '.' ]
     obj.defines = [
@@ -109,6 +92,7 @@ def build(bld):
         'VST_SCANNER_APP',
         'PACKAGE="' + I18N_PACKAGE + str(bld.env['MAJOR']) + '"',
         'LIBARDOUR="' + bld.env['lwrcase_dirname'] + '"',
+        'VERSIONSTRING="' + str(bld.env['VERSION']) + '"',
         ]
     if re.search ("bsd", sys.platform) != None:
         obj.defines.append('_POSIX_C_SOURCE=200809')
