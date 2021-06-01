@@ -153,6 +153,16 @@ private:
 	typedef boost::container::set<PluginScanLogEntry> PluginScanLog;
 	PluginScanLog _plugin_scan_log;
 
+	PluginScanLogEntry& scan_log_entry (PluginType const type, std::string const& path) {
+		PluginScanLogEntry psl (type, path);
+		PluginScanLog::iterator i = _plugin_scan_log.find (psl);
+		if (i == _plugin_scan_log.end ()) {
+			_plugin_scan_log.insert (psl);
+			i = _plugin_scan_log.find (psl);
+		}
+		return *i;
+	}
+
 	struct PluginTag {
 		PluginType const  type;
 		std::string const unique_id;

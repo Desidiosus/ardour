@@ -1645,13 +1645,7 @@ PluginManager::vst3_discover (string const& path, bool cache_only)
 		_plugin_scan_log.erase (psl);
 	}
 
-	PluginScanLogEntry psl (VST3, module_path);
-	PluginScanLog::iterator i = _plugin_scan_log.find (psl);
-	if (i == _plugin_scan_log.end ()) {
-		_plugin_scan_log.insert (psl);
-		i = _plugin_scan_log.find (psl);
-	}
-	PluginScanLogEntry& psle (*i);
+	PluginScanLogEntry& psle (scan_log_entry (VST3, module_path));
 
 	if (vst3_is_blacklisted (module_path)) {
 		psle.msg (PluginScanLogEntry::Blacklisted);
