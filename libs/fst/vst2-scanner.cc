@@ -43,10 +43,17 @@
 
 #include "ardour/types.h"
 #include "ardour/vst_types.h"
-#if 0
-#include "../ardour/vst3_scan.cc"
-#include "../ardour/vst3_host.cc"
-#include "../ardour/vst3_module.cc"
+
+#include "../ardour/vst_state.cc"
+#include "../ardour/vst2_scan.cc"
+
+#ifdef LXVST_SUPPORT
+#include "../ardour/linux_vst_support.cc"
+void vstfx_destroy_editor (VSTState* /*vstfx*/) { }
+#endif
+
+#ifdef MACVST_SUPPORT
+#include "../ardour/mac_vst_support.cc"
 #endif
 
 using namespace PBD;
@@ -87,28 +94,26 @@ protected:
 
 LogReceiver log_receiver;
 
-static void vst2_plugin (std::string const& module_path, VSTInfo const& i)
+static void vst2_plugin (std::string const& module_path, VST2Info const& i)
 {
 	info << "Found Plugin: " << i.name << endmsg;
 }
 
 static bool
-scan_vst2 (std::string const& path, bool force, bool verbose)
+scan_vst2 (std::string const& path, ARDOUR::PluginType type, bool force, bool verbose)
 {
 	info << "Scanning: " << path << endmsg;
 
-#if 0
-	if (!vst3_valid_cache_file (path, verbose).empty()) {
+	if (!vst2_valid_cache_file (path, verbose).empty()) {
 		if (!force) {
 			info << "Skipping scan." << endmsg;
 			return true;
 		}
 	}
 
-	if (vst3_scan_and_cache (path, sigc::ptr_fun (&vst2_plugin), verbose)) {
+	if (vst2_scan_and_cache (path, type, sigc::ptr_fun (&vst2_plugin), verbose)) {
 		info << string_compose (_("Saved VST2 plugin cache to %1"), vst2_cache_file (path)) << endmsg;
 	}
-#endif
 
 	return true;
 }
@@ -240,7 +245,7 @@ main (int argc, char **argv)
 			continue;
 		}
 
-		if (!scan_vst2 (dllpath, force, verbose)) {
+		if (!scan_vst2 (dllpath, type, force, verbose)) {
 			err = true;
 		}
 		if (stop_on_error) {

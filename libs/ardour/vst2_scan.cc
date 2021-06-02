@@ -133,18 +133,11 @@ simple_master_callback (AEffect *, int32_t opcode, int32_t, intptr_t, void *ptr,
 	}
 }
 
-
-/** main plugin query and test function */
-static VSTInfo*
-vstfx_parse_vst_state (VSTState* vstfx)
+/** query VST Info */
+static void
+vstfx_parse_vst_state (ARDOUR::VST2Info& nfo, VSTState* vstfx)
 {
 	assert (vstfx);
-
-	VSTInfo* info = (VSTInfo*) malloc (sizeof (VSTInfo));
-	if (!info) {
-		return 0;
-	}
-
 	/* We need to init the creator because some plugins
 	 * fail to implement getVendorString, and so won't stuff the
 	 * string with any name */
@@ -154,7 +147,6 @@ vstfx_parse_vst_state (VSTState* vstfx)
 
 	AEffect* plugin = vstfx->plugin;
 
-
 	plugin->dispatcher (plugin, effGetEffectName, 0, 0, name, 0);
 
 	if (strlen (name) == 0) {
@@ -162,9 +154,9 @@ vstfx_parse_vst_state (VSTState* vstfx)
 	}
 
 	if (strlen (name) == 0) {
-		info->name = strdup (vstfx->handle->name);
+		nfo.name = vstfx->handle->name;
 	} else {
-		info->name = strdup (name);
+		nfo.name = name;
 	}
 
 	/*If the plugin doesn't bother to implement GetVendorString we will
@@ -176,173 +168,118 @@ vstfx_parse_vst_state (VSTState* vstfx)
 	 * so if its just a zero length string we replace it with 'Unknown' */
 
 	if (strlen (creator) == 0) {
-		info->creator = strdup ("Unknown");
+		nfo.creator = "Unknown";
 	} else {
-		info->creator = strdup (creator);
+		nfo.creator = creator;
 	}
-
 
 	switch (plugin->dispatcher (plugin, effGetPlugCategory, 0, 0, 0, 0))
 	{
-		case kPlugCategEffect:         info->Category = strdup ("Effect"); break;
-		case kPlugCategSynth:          info->Category = strdup ("Instrument"); break;
-		case kPlugCategAnalysis:       info->Category = strdup ("Analyser"); break;
-		case kPlugCategMastering:      info->Category = strdup ("Mastering"); break;
-		case kPlugCategSpacializer:    info->Category = strdup ("Spatial"); break;
-		case kPlugCategRoomFx:         info->Category = strdup ("RoomFx"); break;
-		case kPlugSurroundFx:          info->Category = strdup ("SurroundFx"); break;
-		case kPlugCategRestoration:    info->Category = strdup ("Restoration"); break;
-		case kPlugCategOfflineProcess: info->Category = strdup ("Offline"); break;
-		case kPlugCategShell:          info->Category = strdup ("Shell"); break;
-		case kPlugCategGenerator:      info->Category = strdup ("Generator"); break;
-		default:                       info->Category = strdup ("Unknown"); break;
+		case kPlugCategEffect:         nfo.category = "Effect"; break;
+		case kPlugCategSynth:          nfo.category = "Instrument"; break;
+		case kPlugCategAnalysis:       nfo.category = "Analyser"; break;
+		case kPlugCategMastering:      nfo.category = "Mastering"; break;
+		case kPlugCategSpacializer:    nfo.category = "Spatial"; break;
+		case kPlugCategRoomFx:         nfo.category = "RoomFx"; break;
+		case kPlugSurroundFx:          nfo.category = "SurroundFx"; break;
+		case kPlugCategRestoration:    nfo.category = "Restoration"; break;
+		case kPlugCategOfflineProcess: nfo.category = "Offline"; break;
+		case kPlugCategShell:          nfo.category = "Shell"; break;
+		case kPlugCategGenerator:      nfo.category = "Generator"; break;
+		default:                       nfo.category = "Unknown"; break;
 	}
 
-	info->UniqueID = plugin->uniqueID;
+	nfo.id = plugin->uniqueID;
+	nfo.n_inputs = plugin->numInputs;
+	nfo.n_outputs = plugin->numOutputs;
+	nfo.has_editor = plugin->flags & effFlagsHasEditor ? true : false;
+	nfo.can_process_replace = plugin->flags & effFlagsCanReplacing ? true : false;
+	nfo.has_midi_input = vstfx_midi_input (vstfx);
 
-	info->numInputs = plugin->numInputs;
-	info->numOutputs = plugin->numOutputs;
-	info->numParams = plugin->numParams;
-	info->wantMidi = (vstfx_midi_input (vstfx) ? 1 : 0) | (vstfx_midi_output (vstfx) ? 2 : 0);
-	info->hasEditor = plugin->flags & effFlagsHasEditor ? true : false;
-	info->isInstrument = (plugin->flags & effFlagsIsSynth) ? 1 : 0;
-	info->canProcessReplacing = plugin->flags & effFlagsCanReplacing ? true : false;
-	info->ParamNames = (char **) malloc (sizeof (char*)*info->numParams);
-	info->ParamLabels = (char **) malloc (sizeof (char*)*info->numParams);
+#if 0
+	nfo.is_instrument = (plugin->flags & effFlagsIsSynth) ? 1 : 0;
+	nfo.has_MIDI = (vstfx_midi_input (vstfx) ? 1 : 0) | (vstfx_midi_output (vstfx) ? 2 : 0);
+	nfo.n_params = plugin->numParams;
+#endif
 
 #ifdef __APPLE__
-	if (info->hasEditor) {
+	if (nfo.has_editor) {
 		/* we only support Cocoa UIs (just like Reaper) */
-		info->hasEditor = (plugin->dispatcher (plugin, effCanDo, 0, 0, const_cast<char*> ("hasCockosViewAsConfig"), 0.0f) & 0xffff0000) == 0xbeef0000;
+		nfo.hasEditor = (plugin->dispatcher (plugin, effCanDo, 0, 0, const_cast<char*> ("hasCockosViewAsConfig"), 0.0f) & 0xffff0000) == 0xbeef0000;
 	}
 #endif
 
-	for (int i = 0; i < info->numParams; ++i) {
+#if 0
+	for (int i = 0; i < nfo.n_params; ++i) {
 		char name[VestigeMaxLabelLen];
 		char label[VestigeMaxLabelLen];
 
 		/* Not all plugins give parameters labels as well as names */
-
 		strcpy (name, "No Name");
 		strcpy (label, "No Label");
 
 		plugin->dispatcher (plugin, effGetParamName, i, 0, name, 0);
-		info->ParamNames[i] = strdup (name);
+		plugin->dispatcher (plugin, 6 /* effGetParamLabel */, i, 0, label, 0);
 
-		//NOTE: 'effGetParamLabel' is no longer defined in vestige headers
-		//plugin->dispatcher (plugin, effGetParamLabel, i, 0, label, 0);
-		info->ParamLabels[i] = strdup (label);
+		nfp.param[name] = label;
 	}
-	return info;
+#endif
 }
 
-
-static bool vstfx_instantiate_and_get_info (const char* dllpath, ARDOUR::PluginType type, std::vector<VSTInfo*> *infos, int uniqueID);
-
-/** wrapper around \ref vstfx_parse_vst_state,
- * iterate over plugins in shell, translate VST-info into ardour VSTState
- */
-static bool
-vstfx_info_from_plugin (const char *dllpath, VSTState* vstfx, vector<VSTInfo *> *infos, enum ARDOUR::PluginType type)
+static void
+vst2_close (VSTState* vstfx, ARDOUR::PluginType type)
 {
-	assert (vstfx);
-	VSTInfo *info;
-
-	if (!(info = vstfx_parse_vst_state (vstfx))) {
-		return false;
-	}
-
-	infos->push_back (info);
-#if 1 // shell-plugin support
-	/* If this plugin is a Shell and we are not already inside a shell plugin
-	 * read the info for all of the plugins contained in this shell.
-	 */
-	if (!strncmp (info->Category, "Shell", 5)
-			&& vstfx->handle->plugincnt == 1) {
-		int id;
-		vector< pair<int, string> > ids;
-		AEffect *plugin = vstfx->plugin;
-
-		do {
-			char name[65] = "Unknown";
-			id = plugin->dispatcher (plugin, effShellGetNextPlugin, 0, 0, name, 0);
-			ids.push_back (std::make_pair (id, name));
-		} while ( id != 0 );
-
-		switch (type) {
+	switch (type) {
 #ifdef WINDOWS_VST_SUPPORT
-			case ARDOUR::Windows_VST:
-				fst_close (vstfx);
-				break;
+		case ARDOUR::Windows_VST:
+			fst_close (vstfx);
+			break;
 #endif
 #ifdef LXVST_SUPPORT
-			case ARDOUR::LXVST:
-				vstfx_close (vstfx);
-				break;
+		case ARDOUR::LXVST:
+			vstfx_close (vstfx);
+			break;
 #endif
 #ifdef MACVST_SUPPORT
-			case ARDOUR::MacVST:
-				mac_vst_close (vstfx);
-				break;
+		case ARDOUR::MacVST:
+			mac_vst_close (vstfx);
+			break;
 #endif
-			default:
-				assert (0);
-				break;
-		}
-
-		for (vector< pair<int, string> >::iterator x = ids.begin (); x != ids.end (); ++x) {
-			id = (*x).first;
-			if (id == 0) continue;
-			/* recurse vstfx_get_info() */
-
-			bool ok = vstfx_instantiate_and_get_info (dllpath, type, infos, id);
-			if (ok) {
-				// One shell (some?, all?) does not report the actual plugin name
-				// even after the shelled plugin has been instantiated.
-				// Replace the name of the shell with the real name.
-				info = infos->back ();
-				free (info->name);
-
-				if ((*x).second.length () == 0) {
-					info->name = strdup ("Unknown");
-				}
-				else {
-					info->name = strdup ((*x).second.c_str ());
-				}
-			}
-		}
-	} else {
-		switch (type) {
-#ifdef WINDOWS_VST_SUPPORT
-			case ARDOUR::Windows_VST:
-				fst_close (vstfx);
-				break;
-#endif
-#ifdef LXVST_SUPPORT
-			case ARDOUR::LXVST:
-				vstfx_close (vstfx);
-				break;
-#endif
-#ifdef MACVST_SUPPORT
-			case ARDOUR::MacVST:
-				mac_vst_close (vstfx);
-				break;
-#endif
-			default:
-				assert (0);
-				break;
-		}
+		default:
+			assert (0);
+			break;
 	}
-#endif
-	return true;
 }
 
-static bool
-vstfx_instantiate_and_get_info (const char* dllpath, ARDOUR::PluginType type, std::vector<VSTInfo*> *infos, int uniqueID)
+static void
+vst2_unload (VSTHandle* h, ARDOUR::PluginType type)
 {
-	VSTHandle* h     = NULL;
-	VSTState*  vstfx = NULL;
+	switch (type) {
+#ifdef WINDOWS_VST_SUPPORT
+		case ARDOUR::Windows_VST:
+			fst_unload (h);
+			break;
+#endif
+#ifdef LXVST_SUPPORT
+		case ARDOUR::LXVST:
+			vstfx_unload (h);
+			break;
+#endif
+#ifdef MACVST_SUPPORT
+		case ARDOUR::MacVST:
+			mac_vst_unload (h);
+			break;
+#endif
+		default:
+			assert (0);
+			break;
+	}
+}
 
+static VSTHandle*
+vstfx_load (const char* dllpath, ARDOUR::PluginType type)
+{
+	VSTHandle* h = NULL;
 	switch (type) {
 #ifdef WINDOWS_VST_SUPPORT
 		case ARDOUR::Windows_VST:
@@ -360,80 +297,108 @@ vstfx_instantiate_and_get_info (const char* dllpath, ARDOUR::PluginType type, st
 			break;
 #endif
 		default:
+			assert (0);
 			break;
 	}
+	return h;
+}
 
-	if (!h) {
-		PBD::warning << string_compose (_("Cannot get load VST pluginfrom '%1'"), dllpath) << endmsg;
-		return false;
-	}
-
-	vstfx_current_loading_id = uniqueID;
-
+static VSTState*
+vst2_instantiate (VSTHandle* h, ARDOUR::PluginType type)
+{
+	VSTState* s = NULL;
 	switch (type) {
 #ifdef WINDOWS_VST_SUPPORT
 		case ARDOUR::Windows_VST:
-			if (!(vstfx = fst_instantiate (h, simple_master_callback, 0))) {
-				fst_unload (&h);
-			}
+			s = fst_instantiate (h, simple_master_callback, 0);
 			break;
 #endif
 #ifdef LXVST_SUPPORT
 		case ARDOUR::LXVST:
-			if (!(vstfx = vstfx_instantiate (h, simple_master_callback, 0))) {
-				vstfx_unload (h);
-			}
+			s = vstfx_instantiate (h, simple_master_callback, 0);
 			break;
 #endif
 #ifdef MACVST_SUPPORT
 		case ARDOUR::MacVST:
-			if (!(vstfx = mac_vst_instantiate (h, simple_master_callback, 0))) {
-				mac_vst_unload (h);
-			}
-			break;
+			s = mac_vst_instantiate (h, simple_master_callback, 0);
 #endif
 		default:
+			assert (0);
 			break;
 	}
+	return s;
+}
 
-	vstfx_current_loading_id = 0;
+/** wrapper around \ref vstfx_parse_vst_state,
+ * iterate over plugins in shell, translate VST-info into ardour VSTState
+ */
+static void
+vstfx_info_from_plugin (VSTHandle* h, VSTState* vstfx, vector<ARDOUR::VST2Info>& rv, enum ARDOUR::PluginType type)
+{
+	assert (vstfx);
 
-	if (!vstfx) {
-		PBD::warning << string_compose (_("Cannot get VST information from '%1': instantiation failed."), dllpath) << endmsg;
-		return false;
+	ARDOUR::VST2Info nfo;
+	vstfx_parse_vst_state (nfo, vstfx);
+
+	if (strncmp (nfo.category.c_str(), "Shell", 5) || vstfx->handle->plugincnt != 1) {
+		rv.push_back (nfo);
+		vst2_close (vstfx, type);
+		return;
 	}
 
-	return vstfx_info_from_plugin (dllpath, vstfx, infos, type);
+	/* shell plugin.
+	 * read the info for all of the plugins contained in this shell.
+	 */
+	int id;
+	vector< pair<int, string> > ids;
+	AEffect* plugin = vstfx->plugin;
+
+	do {
+		char name[65] = "Unknown";
+		id = plugin->dispatcher (plugin, effShellGetNextPlugin, 0, 0, name, 0);
+		ids.push_back (std::make_pair (id, name));
+	} while (id != 0);
+
+	vst2_close (vstfx, type);
+
+	for (vector< pair<int, string> >::iterator x = ids.begin (); x != ids.end (); ++x) {
+		id = (*x).first;
+		if (id == 0) {
+			continue;
+		}
+		/* recurse vstfx_get_info() */
+		vstfx_current_loading_id = id;
+		vstfx = vst2_instantiate (h, type);
+		if (!vstfx) {
+			PBD::warning << string_compose (_("Error scanning VST2 Shell ID: '%1' Name: '%2'"), id, (*x).second) << endmsg;
+			continue;
+		}
+		vstfx_info_from_plugin (h, vstfx, rv, type);
+	}
 }
 
 static bool
 discover_vst2 (std::string const& path, ARDOUR::PluginType type, std::vector<ARDOUR::VST2Info>& rv, bool verbose)
 {
-	bool ok = false;
-#if 0
-	switch (type) {
-#ifdef WINDOWS_VST_SUPPORT
-		case ARDOUR::Windows_VST:
-			ok = vstfx_instantiate_and_get_info_fst (dllpath, infos, 0);
-			break;
-#endif
-#ifdef LXVST_SUPPORT
-		case ARDOUR::LXVST:
-			ok = vstfx_instantiate_and_get_info_lx (dllpath, infos, 0);
-			break;
-#endif
-#ifdef MACVST_SUPPORT
-		case ARDOUR::MacVST:
-			ok = vstfx_instantiate_and_get_info_mac (dllpath, infos, 0);
-			break;
-#endif
-		default:
-			return false;
-			break;
-	}
-#endif
+	VSTHandle* h = vstfx_load (path.c_str (), type);
 
-	return ok;
+	if (!h) {
+		PBD::warning << string_compose (_("Cannot get load VST plugin from '%1'"), path) << endmsg;
+		return false;
+	}
+
+	vstfx_current_loading_id = 0;
+	VSTState* vstfx = vst2_instantiate (h, type);
+
+	if (!vstfx) {
+		vst2_unload (h, type);
+		PBD::warning << string_compose (_("Cannot get VST information from '%1': instantiation failed."), path) << endmsg;
+		return false;
+	}
+
+	vstfx_info_from_plugin (h, vstfx, rv, type);
+	vst2_unload (h, type);
+	return true;
 }
 
 static std::string vst2_suffix () {
