@@ -75,6 +75,32 @@ PluginManagerUI::on_show ()
 	ArdourWindow::on_show ();
 }
 
+static std::string
+status_text (PluginScanLogEntry::PluginScanResult sr)
+{
+	if (sr == PluginScanLogEntry::OK) {
+		return "OK";
+	}
+	// TODO pick most relevant, show others on tooltip only
+	std::string rv;
+	if ((int)sr & PluginScanLogEntry::Skipped) {
+		rv += "Skipped ";
+	}
+	if ((int)sr & PluginScanLogEntry::Missing) {
+		rv += "Missing ";
+	}
+	if ((int)sr & PluginScanLogEntry::Error) {
+		rv += "Error ";
+	}
+	if ((int)sr & PluginScanLogEntry::Incompatible) {
+		rv += "Incompatible ";
+	}
+	if ((int)sr & PluginScanLogEntry::Incompatible) {
+		rv += "Blacklisted ";
+	}
+	return rv;
+}
+
 void
 PluginManagerUI::refill ()
 {
@@ -87,19 +113,28 @@ PluginManagerUI::refill ()
 
 	for (std::vector<PluginScanLogEntry>::const_iterator i = psl.begin(); i != psl.end(); ++i) {
 		PluginInfoList const& plugs = i->nfo ();
+		// TODO show "hidden" status
+		// PluginManager::PluginStatusType status = manager.get_status (*i);
 		if (plugs.size () == 0) {
 			Gtk::TreeModel::Row newrow = *(plugin_model->append());
 			newrow[plugin_columns.path] = i->path ();
 			newrow[plugin_columns.type] = enum_2_string (i->type ());
 			newrow[plugin_columns.name] = "-";
+			newrow[plugin_columns.status] = "Empty"; // XXX
 		} else if (plugs.size () == 1) {
 			Gtk::TreeModel::Row newrow = *(plugin_model->append());
 			newrow[plugin_columns.path] = i->path ();
-			newrow[plugin_columns.path] = i->path ();
 			newrow[plugin_columns.type] = enum_2_string (i->type ());
 			newrow[plugin_columns.name] = plugs.front()->name;
+			newrow[plugin_columns.status] = status_text (i->result ());
 		} else {
-			printf ("SHELL, no oil\n");
+			for (PluginInfoList::const_iterator j = plugs.begin(); j != plugs.end(); ++j) {
+				Gtk::TreeModel::Row newrow = *(plugin_model->append());
+				newrow[plugin_columns.path] = i->path ();
+				newrow[plugin_columns.type] = enum_2_string (i->type ());
+				newrow[plugin_columns.name] = (*j)->name;
+				newrow[plugin_columns.status] = status_text (i->result ());
+			}
 		}
 	}
 	plugin_display.set_model (plugin_model);
