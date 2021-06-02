@@ -47,7 +47,6 @@
 #endif
 
 #ifdef WINDOWS_VST_SUPPORT
-#include "ardour/vst_info_file.h"
 #include "fst.h"
 #include "pbd/basename.h"
 #include <cstring>
@@ -61,16 +60,11 @@
 #endif // WINDOWS_VST_SUPPORT
 
 #ifdef LXVST_SUPPORT
-#include "ardour/vst_info_file.h"
-#include "ardour/linux_vst_support.h"
 #include "pbd/basename.h"
 #include <cstring>
 #endif //LXVST_SUPPORT
 
 #ifdef MACVST_SUPPORT
-#include "ardour/vst_info_file.h"
-#include "ardour/mac_vst_support.h"
-#include "ardour/mac_vst_plugin.h"
 #include "pbd/basename.h"
 #include "pbd/pathexpand.h"
 #include <cstring>
@@ -96,9 +90,11 @@
 #include "ardour/plugin.h"
 #include "ardour/plugin_manager.h"
 #include "ardour/rc_configuration.h"
-
 #include "ardour/search_paths.h"
 
+#if (defined WINDOWS_VST_SUPPORT || defined MACVST_SUPPORT || defined LXVST_SUPPORT)
+#include "ardour/vst2_scan.h"
+#endif
 
 #ifdef WINDOWS_VST_SUPPORT
 #include "ardour/windows_vst_plugin.h"
@@ -106,6 +102,12 @@
 
 #ifdef LXVST_SUPPORT
 #include "ardour/lxvst_plugin.h"
+#include "ardour/linux_vst_support.h"
+#endif
+
+#ifdef MACVST_SUPPORT
+#include "ardour/mac_vst_support.h"
+#include "ardour/mac_vst_plugin.h"
 #endif
 
 #ifdef AUDIOUNIT_SUPPORT
@@ -132,7 +134,7 @@ using namespace PBD;
 using namespace std;
 
 PluginManager* PluginManager::_instance = 0;
-std::string PluginManager::scanner_bin_path = "";
+std::string PluginManager::vst2_scanner_bin_path = "";
 std::string PluginManager::vst3_scanner_bin_path = "";
 
 
@@ -147,6 +149,14 @@ std::string PluginManager::vst3_scanner_bin_path = "";
 #  define VST3_BLACKLIST  "vst3_a32_blacklist.txt"
 # else
 #  define VST3_BLACKLIST  "vst3_blacklist.txt"
+# endif
+#endif
+
+#if (defined WINDOWS_VST_SUPPORT || defined MACVST_SUPPORT || defined LXVST_SUPPORT)
+# if ( defined(__x86_64__) || defined(_M_X64) )
+#  define VST2_BLACKLIST  "vst2_x64_blacklist.txt"
+# else
+#  define VST2_BLACKLIST  "vst2_x86_blacklist.txt"
 # endif
 #endif
 
@@ -201,7 +211,7 @@ PluginManager::PluginManager ()
 #else
 				"ardour-vst-scanner"
 #endif
-				, scanner_bin_path)) {
+				, vst2_scanner_bin_path)) {
 		PBD::warning << "VST scanner app (ardour-vst-scanner) not found in path " << vstsp.to_string() << endmsg;
 	}
 #endif // VST2
@@ -496,7 +506,7 @@ PluginManager::refresh (bool cache_only)
 
 #if (defined WINDOWS_VST_SUPPORT || defined LXVST_SUPPORT || defined MACVST_SUPPORT)
 	if (!cache_only) {
-		string fn = Glib::build_filename (ARDOUR::user_cache_directory(), VST_BLACKLIST);
+		string fn = Glib::build_filename (ARDOUR::user_cache_directory(), VST2_BLACKLIST);
 		if (Glib::file_test (fn, Glib::FILE_TEST_EXISTS)) {
 			try {
 				std::string bl = Glib::file_get_contents (fn);
@@ -631,9 +641,9 @@ PluginManager::clear_vst_cache ()
 #if (defined WINDOWS_VST_SUPPORT || defined LXVST_SUPPORT || defined MACVST_SUPPORT)
 	{
 		string dn = Glib::build_filename (ARDOUR::user_cache_directory(), "vst");
-		vector<string> fsi_files;
-		find_files_matching_regex (fsi_files, dn, "\\" VST_EXT_INFOFILE "$", /* user cache is flat, no recursion */ false);
-		for (vector<string>::iterator i = fsi_files.begin(); i != fsi_files.end (); ++i) {
+		vector<string> v2i_files;
+		find_files_matching_regex (v2i_files, dn, "\\.v2i$", false);
+		for (vector<string>::iterator i = v2i_files.begin(); i != v2i_files.end (); ++i) {
 			::g_unlink(i->c_str());
 		}
 	}
@@ -647,7 +657,7 @@ PluginManager::clear_vst_blacklist ()
 {
 #if (defined WINDOWS_VST_SUPPORT || defined LXVST_SUPPORT || defined MACVST_SUPPORT)
 	{
-		string fn = Glib::build_filename (ARDOUR::user_cache_directory(), VST_BLACKLIST);
+		string fn = Glib::build_filename (ARDOUR::user_cache_directory(), VST2_BLACKLIST);
 		if (Glib::file_test (fn, Glib::FILE_TEST_EXISTS)) {
 			::g_unlink (fn.c_str());
 		}
@@ -1030,6 +1040,120 @@ PluginManager::au_refresh (bool cache_only)
 
 #endif
 
+#if (defined WINDOWS_VST_SUPPORT || defined MACVST_SUPPORT || defined LXVST_SUPPORT)
+
+static void vst2_blacklist (string const& module_path)
+{
+	string fn = Glib::build_filename (ARDOUR::user_cache_directory (), VST2_BLACKLIST);
+	FILE* f = NULL;
+	if (! (f = g_fopen (fn.c_str (), "a"))) {
+		PBD::error << string_compose (_("Cannot write to VST2 blacklist file '%1'"), fn) << endmsg;
+		return;
+	}
+	assert (NULL == strchr (module_path.c_str(), '\n'));
+	fprintf (f, "%s\n", module_path.c_str ());
+	::fclose (f);
+}
+
+static void vst2_whitelist (string module_path)
+{
+	string fn = Glib::build_filename (ARDOUR::user_cache_directory (), VST2_BLACKLIST);
+	if (!Glib::file_test (fn, Glib::FILE_TEST_EXISTS)) {
+		PBD::warning << _("Expected VST Blacklist file does not exist.") << endmsg;
+		return;
+	}
+
+	std::string bl;
+	try {
+		bl = Glib::file_get_contents (fn);
+	} catch (Glib::FileError const& err) {
+		return;
+	}
+	::g_unlink (fn.c_str ());
+
+	module_path += "\n"; // add separator
+	const size_t rpl = bl.find (module_path);
+	if (rpl != string::npos) {
+		bl.replace (rpl, module_path.size (), "");
+	}
+	if (bl.empty ()) {
+		return;
+	}
+	Glib::file_set_contents (fn, bl);
+}
+
+static bool vst2_is_blacklisted (string const& module_path)
+{
+	string fn = Glib::build_filename (ARDOUR::user_cache_directory (), VST2_BLACKLIST);
+	if (!Glib::file_test (fn, Glib::FILE_TEST_EXISTS)) {
+		return false;
+	}
+
+	std::string bl;
+	try {
+		bl = Glib::file_get_contents (fn);
+	} catch (Glib::FileError const& err) {
+		return false;
+	}
+	return bl.find (module_path + "\n") != string::npos;
+}
+
+static void vst2_scanner_log (std::string msg, PluginScanLogEntry* psle)
+{
+	psle->msg (PluginScanLogEntry::OK, msg);
+}
+
+bool
+PluginManager::run_vst2_scanner_app (std::string path, PluginScanLogEntry& psle) const
+{
+	char **argp= (char**) calloc (5, sizeof (char*));
+	argp[0] = strdup (vst3_scanner_bin_path.c_str ());
+	argp[1] = strdup ("-f");
+	argp[2] = strdup ("-f"); // -v
+	argp[3] = strdup (path.c_str ());
+	argp[4] = 0;
+
+	ARDOUR::SystemExec scanner (vst2_scanner_bin_path, argp);
+	PBD::ScopedConnection c;
+	scanner.ReadStdout.connect_same_thread (c, boost::bind (&vst2_scanner_log, _1, &psle));
+
+	if (scanner.start (ARDOUR::SystemExec::MergeWithStdin)) {
+		psle.msg (PluginScanLogEntry::Error, string_compose (_("Cannot launch VST scanner app '%1': %2"), vst2_scanner_bin_path, strerror (errno)));
+		return false;
+	}
+
+	int timeout = Config->get_vst_scan_timeout(); // deciseconds
+	bool notime = (timeout <= 0);
+
+	while (scanner.is_running () && (notime || timeout > 0)) {
+		if (!notime && no_timeout ()) {
+			notime = true;
+			timeout = -1;
+		}
+
+		ARDOUR::PluginScanTimeout (timeout);
+		--timeout;
+		Glib::usleep (100000);
+
+		if (cancelled () || (!notime && timeout == 0)) {
+			scanner.terminate ();
+			if (cancelled ()) {
+				psle.msg (PluginScanLogEntry::Error, "Scan was cancelled.");
+			} else {
+				psle.msg (PluginScanLogEntry::Error, "Scan Timed Out.");
+			}
+			/* may be partially written */
+			g_unlink (vst2_cache_file (path).c_str ());
+			vst2_whitelist (path);
+			return false;
+		}
+	}
+	return true;
+}
+
+#endif
+
+
 #ifdef WINDOWS_VST_SUPPORT
 
 void
@@ -1402,6 +1526,56 @@ PluginManager::lxvst_discover_from_path (string path, bool cache_only)
 	return ret;
 }
 
+bool
+PluginManager::vst2_lx_plugin (string const& path, VST2Info const& nfo)
+{
+	PluginScanLogEntry& psle (scan_log_entry (LXVST, path));
+
+	if (!nfo.can_process_replace) {
+		psle.msg (PluginScanLogEntry::Error, string_compose (_("plugin '%1' does not support processReplacing, and so cannot be used in %2 at this time"), nfo.name, PROGRAM_NAME));
+		return false;
+	}
+
+	PluginInfoPtr info (new LXVSTPluginInfo (nfo));
+
+	if (!strcasecmp ("The Unnamed plugin", info->name.c_str())) {
+		info->name = PBD::basename_nosuffix (path);
+	}
+
+
+	/* Make sure we don't find the same plugin in more than one place along
+	 * the LXVST_PATH We can't use a simple 'find' because the path is included
+	 * in the PluginInfo, and that is the one thing we can be sure MUST be
+	 * different if a duplicate instance is found. So we just compare the type
+	 * and unique ID (which for some VSTs isn't actually unique...)
+	 */
+
+	// TODO: check dup-IDs with windowsVST, too
+	bool duplicate = false;
+	if (!_lxvst_plugin_info->empty()) {
+		for (PluginInfoList::iterator i =_lxvst_plugin_info->begin(); i != _lxvst_plugin_info->end(); ++i) {
+			if ((info->type == (*i)->type)&&(info->unique_id == (*i)->unique_id)) {
+				psle.msg (PluginScanLogEntry::Error, string_compose (_("Ignoring plugin '%1'. VST-ID conflicts with other plugin"), info->name));
+				duplicate = true;
+				continue;
+			}
+		}
+	}
+
+	if (duplicate) {
+		return false;
+	}
+
+	_lxvst_plugin_info->push_back (info);
+
+	psle.add (info);
+
+	if (!info->category.empty ()) {
+		set_tags (info->type, info->unique_id, info->category, info->name, FromPlug);
+	}
+	return true;
+}
+
 int
 PluginManager::lxvst_discover (string path, bool cache_only)
 {
@@ -1409,65 +1583,93 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 
 	PluginScanLogEntry& psle (scan_log_entry (LXVST, path));
 
+	if (vst2_is_blacklisted (path)) {
+		psle.msg (PluginScanLogEntry::Blacklisted);
+		return -1;
+	}
+
 	if (!cache_only) {
 		psle.reset ();
 	}
 
-	_cancel_timeout = false;
-	vector<VSTInfo*> * finfos = vstfx_get_info_lx (const_cast<char *> (path.c_str()),
-			cache_only ? VST_SCAN_CACHE_ONLY : VST_SCAN_USE_APP/*, psle*/);
+	string cache_file = vst2_valid_cache_file (path);
 
-	if (finfos->empty()) {
-		DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot get Linux VST information from '%1'\n", path));
-		psle.msg (PluginScanLogEntry::Error, "Cannot get Linux VST information");
+	if (!cache_only && vst2_scanner_bin_path.empty ()) {
+		/* TODO: direct scan in the host's process */
+		psle.msg (PluginScanLogEntry::Skipped, _("VST2 scanner application is missing."));
 		return -1;
 	}
 
-	uint32_t discovered = 0;
-	for (vector<VSTInfo *>::iterator x = finfos->begin(); x != finfos->end(); ++x) {
-		VSTInfo* finfo = *x;
+	bool run_scan = false;
 
-		if (!finfo->canProcessReplacing) {
-			psle.msg (PluginScanLogEntry::Error, string_compose (_("plugin '%1' does not support processReplacing, and so cannot be used in %2 at this time"), finfo->name, PROGRAM_NAME));
-			continue;
+	XMLTree tree;
+	if (cache_file.empty ()) {
+		run_scan = true;
+	} else if (tree.read (cache_file)) {
+		/* valid cache file was found, now check version */
+		int cf_version = 0;
+		if (!tree.root()->get_property ("version", cf_version) || cf_version < 1) {
+			run_scan = true;
+		}
+		// TODO check if arch matches
+	} else {
+		/* failed to parse XML */
+		run_scan = true;
+	}
+
+	if (!cache_only && run_scan) {
+		/* re/generate cache file */
+		psle.reset ();
+		vst2_blacklist (path);
+
+		if (!run_vst2_scanner_app (path, psle)) {
+			return -1;
 		}
 
-		PluginInfoPtr info(new LXVSTPluginInfo (finfo));
-		info->path = path;
+		cache_file = vst2_valid_cache_file (path);
 
-		if (!strcasecmp ("The Unnamed plugin", finfo->name)) {
-			info->name = PBD::basename_nosuffix (path);
+		if (cache_file.empty ()) {
+			psle.msg (PluginScanLogEntry::Error, _("Scan Failed."));
+			return -1;
 		}
+		/* re-read cache file */
+		if (!tree.read (cache_file)) {
+			psle.msg (PluginScanLogEntry::Error, string_compose (_("Cannot parse VST2 cache file '%1' for plugin '%2'"), cache_file, path));
+			return -1;
+		}
+		run_scan = false; // mark as scanned
+	}
 
-		set_tags (info->type, info->unique_id, info->category, info->name, FromPlug);
-
-		/* Make sure we don't find the same plugin in more than one place along
-		 * the LXVST_PATH We can't use a simple 'find' because the path is included
-		 * in the PluginInfo, and that is the one thing we can be sure MUST be
-		 * different if a duplicate instance is found. So we just compare the type
-		 * and unique ID (which for some VSTs isn't actually unique...)
+	if (cache_file.empty () || run_scan) {
+		psle.msg (PluginScanLogEntry::Skipped);
+		/* cache file does not exist and cache_only == true,
+		 * or cache file is invalid (scan needed)
 		 */
+		return -1;
+	}
 
-		// TODO: check dup-IDs with windowsVST, too
-		bool duplicate = false;
-		if (!_lxvst_plugin_info->empty()) {
-			for (PluginInfoList::iterator i =_lxvst_plugin_info->begin(); i != _lxvst_plugin_info->end(); ++i) {
-				if ((info->type == (*i)->type)&&(info->unique_id == (*i)->unique_id)) {
-					psle.msg (PluginScanLogEntry::Error, string_compose (_("Ignoring plugin '%1'. VST-ID conflicts with other plugin"), info->name));
-					duplicate = true;
-					continue;
-				}
+	std::string binary;
+	if (!tree.root()->get_property ("binary", binary) || binary != path) {
+		psle.msg (PluginScanLogEntry::Skipped, string_compose (_("Invalid VST2 cache file '%1'"), cache_file)); // XXX log as error msg
+	}
+
+	vst2_whitelist (path);
+
+	uint32_t discovered = 0;
+	for (XMLNodeConstIterator i = tree.root()->children().begin(); i != tree.root()->children().end(); ++i) {
+		try {
+			VST2Info nfo (**i);
+			if (vst2_lx_plugin (path, nfo)) {
+				++discovered;
 			}
-		}
-
-		if (!duplicate) {
-			_lxvst_plugin_info->push_back (info);
-			discovered++;
+		} catch (...) {
+			psle.msg (PluginScanLogEntry::Skipped, string_compose (_("Corrupt VST3 cache file '%1'"), cache_file)); // XXX error & incomplete
+			DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot load VST3 at '%1'\n", path));
+			continue;
 		}
 	}
 
-	vstfx_free_info_list (finfos);
-	return discovered > 0 ? 0 : -1;
+	return discovered;
 }
 
 #endif // LXVST_SUPPORT
@@ -1741,7 +1943,7 @@ PluginManager::vst3_discover (string const& path, bool cache_only)
 			vst3_plugin (module_path, nfo);
 		} catch (...) {
 			psle.msg (PluginScanLogEntry::Skipped, string_compose (_("Corrupt VST3 cache file '%1'"), cache_file)); // XXX error & incomplete
-			DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot load VST3 at '%1'\n", path));
+			DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot load VST3 at '%1'\n", module_path));
 			continue;
 		}
 	}
@@ -1768,7 +1970,7 @@ PluginManager::run_vst3_scanner_app (std::string bundle_path, PluginScanLogEntry
 	scanner.ReadStdout.connect_same_thread (c, boost::bind (&vst3_scanner_log, _1, &psle));
 
 	if (scanner.start (ARDOUR::SystemExec::MergeWithStdin)) {
-		psle.msg (PluginScanLogEntry::Error, string_compose (_("Cannot launch VST scanner app '%1': %2"), scanner_bin_path, strerror (errno)));
+		psle.msg (PluginScanLogEntry::Error, string_compose (_("Cannot launch VST scanner app '%1': %2"), vst3_scanner_bin_path, strerror (errno)));
 		return false;
 	}
 

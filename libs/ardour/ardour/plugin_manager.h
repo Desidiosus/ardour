@@ -48,10 +48,14 @@ class Plugin;
 struct VST3Info;
 #endif
 
+#if (defined WINDOWS_VST_SUPPORT || defined MACVST_SUPPORT || defined LXVST_SUPPORT)
+struct VST2Info;
+#endif
+
 class LIBARDOUR_API PluginManager : public boost::noncopyable {
 public:
 	static PluginManager& instance();
-	static std::string scanner_bin_path;
+	static std::string vst2_scanner_bin_path;
 	static std::string vst3_scanner_bin_path;
 
 	~PluginManager ();
@@ -298,6 +302,11 @@ private:
 #ifdef VST3_SUPPORT
 	void vst3_plugin (std::string const& module_path, VST3Info const&);
 	bool run_vst3_scanner_app (std::string bundle_path, PluginScanLogEntry&) const;
+#endif
+
+#if (defined WINDOWS_VST_SUPPORT || defined MACVST_SUPPORT || defined LXVST_SUPPORT)
+	bool vst2_lx_plugin (std::string const& module_path, VST2Info const&);
+	bool run_vst2_scanner_app (std::string bundle_path, PluginScanLogEntry&) const;
 #endif
 
 	int lxvst_discover_from_path (std::string path, bool cache_only = false);

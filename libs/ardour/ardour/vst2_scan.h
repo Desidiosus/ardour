@@ -35,7 +35,9 @@ struct VST2Info {
 		: id (0)
 		, n_inputs (0)
 		, n_outputs (0)
-		, has_midi_input (false)
+		, n_midi_inputs (0)
+		, n_midi_outputs (0)
+		, is_instrument (false)
 		, can_process_replace (false)
 		, has_editor (false)
 	{}
@@ -51,8 +53,10 @@ struct VST2Info {
 
 	int n_inputs;
 	int n_outputs;
+	int n_midi_inputs;
+	int n_midi_outputs;
 
-	bool has_midi_input;
+	bool is_instrument;
 	bool can_process_replace;
 	bool has_editor;
 };

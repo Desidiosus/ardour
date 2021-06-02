@@ -1,3 +1,4 @@
+#if 0 // delete this file.
 /*
  * Copyright (C) 2014-2016 Paul Davis <paul@linuxaudiosystems.com>
  * Copyright (C) 2014-2019 Robin Gareus <robin@gareus.org>
@@ -1140,3 +1141,6 @@ vstfx_get_info_fst (char* dllpath, enum VSTScanMode mode)
 #ifndef VST_SCANNER_APP
 } // namespace
 #endif
+
+#endif // unuused
+
