@@ -1407,12 +1407,19 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 {
 	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("checking apparent LXVST plugin at %1\n", path));
 
+	PluginScanLogEntry& psle (scan_log_entry (LXVST, path));
+
+	if (!cache_only) {
+		psle.reset ();
+	}
+
 	_cancel_timeout = false;
 	vector<VSTInfo*> * finfos = vstfx_get_info_lx (const_cast<char *> (path.c_str()),
-			cache_only ? VST_SCAN_CACHE_ONLY : VST_SCAN_USE_APP);
+			cache_only ? VST_SCAN_CACHE_ONLY : VST_SCAN_USE_APP/*, psle*/);
 
 	if (finfos->empty()) {
 		DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot get Linux VST information from '%1'\n", path));
+		psle.msg (PluginScanLogEntry::Error, "Cannot get Linux VST information");
 		return -1;
 	}
 
@@ -1421,9 +1428,7 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 		VSTInfo* finfo = *x;
 
 		if (!finfo->canProcessReplacing) {
-			warning << string_compose (_("linuxVST plugin %1 does not support processReplacing, and so cannot be used in %2 at this time"),
-							 finfo->name, PROGRAM_NAME)
-				<< endl;
+			psle.msg (PluginScanLogEntry::Error, string_compose (_("plugin '%1' does not support processReplacing, and so cannot be used in %2 at this time"), finfo->name, PROGRAM_NAME));
 			continue;
 		}
 
@@ -1448,9 +1453,9 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 		if (!_lxvst_plugin_info->empty()) {
 			for (PluginInfoList::iterator i =_lxvst_plugin_info->begin(); i != _lxvst_plugin_info->end(); ++i) {
 				if ((info->type == (*i)->type)&&(info->unique_id == (*i)->unique_id)) {
-					warning << "Ignoring duplicate Linux VST plugin " << info->name << "\n";
+					psle.msg (PluginScanLogEntry::Error, string_compose (_("Ignoring plugin '%1'. VST-ID conflicts with other plugin"), info->name));
 					duplicate = true;
-					break;
+					continue;
 				}
 			}
 		}
