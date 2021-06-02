@@ -18,6 +18,7 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <ctype.h>
 #include <getopt.h>
 #include <iostream>
 #include <string>
@@ -94,9 +95,23 @@ protected:
 
 LogReceiver log_receiver;
 
+static std::string vst2_id_to_str (int32_t id)
+{
+	std::string rv;
+	for (int i = 0; i < 4; ++i) {
+		char a = ((char*)&id)[i];
+		if (isprint (a)) {
+			rv += a;
+		} else {
+			rv += '.';
+		}
+	}
+	return rv;
+}
+
 static void vst2_plugin (std::string const& module_path, VST2Info const& i)
 {
-	info << "Found Plugin: " << i.name << endmsg;
+	info << "Found Plugin: '" << vst2_id_to_str (i.id) << "' " << i.name << endmsg;
 }
 
 static bool

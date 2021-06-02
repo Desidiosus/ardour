@@ -194,13 +194,9 @@ vstfx_parse_vst_state (ARDOUR::VST2Info& nfo, VSTState* vstfx)
 	nfo.n_outputs = plugin->numOutputs;
 	nfo.has_editor = plugin->flags & effFlagsHasEditor ? true : false;
 	nfo.can_process_replace = plugin->flags & effFlagsCanReplacing ? true : false;
-	nfo.has_midi_input = vstfx_midi_input (vstfx);
-
-#if 0
+	nfo.n_midi_inputs = vstfx_midi_input (vstfx) ? 1 : 0;
+	nfo.n_midi_outputs = vstfx_midi_output (vstfx) ? 1 : 0;
 	nfo.is_instrument = (plugin->flags & effFlagsIsSynth) ? 1 : 0;
-	nfo.has_MIDI = (vstfx_midi_input (vstfx) ? 1 : 0) | (vstfx_midi_output (vstfx) ? 2 : 0);
-	nfo.n_params = plugin->numParams;
-#endif
 
 #ifdef __APPLE__
 	if (nfo.has_editor) {
@@ -210,7 +206,7 @@ vstfx_parse_vst_state (ARDOUR::VST2Info& nfo, VSTState* vstfx)
 #endif
 
 #if 0
-	for (int i = 0; i < nfo.n_params; ++i) {
+	for (int i = 0; i < plugin->numParams; ++i) {
 		char name[VestigeMaxLabelLen];
 		char label[VestigeMaxLabelLen];
 
@@ -229,6 +225,8 @@ vstfx_parse_vst_state (ARDOUR::VST2Info& nfo, VSTState* vstfx)
 static void
 vst2_close (VSTState* vstfx, ARDOUR::PluginType type)
 {
+	/* mark as used, prevent *_close from unloading the plugin */
+	vstfx->handle->plugincnt++;
 	switch (type) {
 #ifdef WINDOWS_VST_SUPPORT
 		case ARDOUR::Windows_VST:
@@ -249,6 +247,7 @@ vst2_close (VSTState* vstfx, ARDOUR::PluginType type)
 			assert (0);
 			break;
 	}
+	vstfx->handle->plugincnt--;
 }
 
 static void
@@ -329,6 +328,27 @@ vst2_instantiate (VSTHandle* h, ARDOUR::PluginType type)
 	return s;
 }
 
+
+static std::string
+vst2_arch (const char* dllpath, ARDOUR::PluginType type)
+{
+	switch (type) {
+#ifdef WINDOWS_VST_SUPPORT
+		case ARDOUR::Windows_VST:
+			// dll_info
+			break;
+#endif
+		default:
+			break;
+	}
+
+# if ( defined(__x86_64__) || defined(_M_X64) )
+	return "x86_64";
+#else
+	return "i386";
+#endif
+}
+
 /** wrapper around \ref vstfx_parse_vst_state,
  * iterate over plugins in shell, translate VST-info into ardour VSTState
  */
@@ -340,7 +360,7 @@ vstfx_info_from_plugin (VSTHandle* h, VSTState* vstfx, vector<ARDOUR::VST2Info>&
 	ARDOUR::VST2Info nfo;
 	vstfx_parse_vst_state (nfo, vstfx);
 
-	if (strncmp (nfo.category.c_str(), "Shell", 5) || vstfx->handle->plugincnt != 1) {
+	if (strncmp (nfo.category.c_str(), "Shell", 5) /*|| vstfx->handle->plugincnt != 1 */) {
 		rv.push_back (nfo);
 		vst2_close (vstfx, type);
 		return;
@@ -537,7 +557,9 @@ VST2Info::VST2Info (XMLNode const& node)
 	: id (0)
 	, n_inputs (0)
 	, n_outputs (0)
-	, has_midi_input (false)
+	, n_midi_inputs (0)
+	, n_midi_outputs (0)
+	, is_instrument (false)
 	, can_process_replace (false)
 	, has_editor (false)
 {
@@ -554,7 +576,10 @@ VST2Info::VST2Info (XMLNode const& node)
 
 	err |= !node.get_property ("n_inputs", n_inputs);
 	err |= !node.get_property ("n_outputs", n_outputs);
-	err |= !node.get_property ("has_midi_input", has_midi_input);
+	err |= !node.get_property ("n_midi_inputs", n_midi_inputs);
+	err |= !node.get_property ("n_midi_outputs", n_midi_outputs);
+
+	err |= !node.get_property ("is_instrument", is_instrument);
 	err |= !node.get_property ("can_process_replace", can_process_replace);
 	err |= !node.get_property ("has_editor", has_editor);
 
@@ -573,9 +598,12 @@ VST2Info::state () const
 	node->set_property ("category", category);
 	node->set_property ("version",  version);
 
-	node->set_property ("n_inputs",             n_inputs);
-	node->set_property ("n_outputs",            n_outputs);
-	node->set_property ("has_midi_input",       has_midi_input);
+	node->set_property ("n_inputs",       n_inputs);
+	node->set_property ("n_outputs",      n_outputs);
+	node->set_property ("n_midi_inputs",  n_midi_inputs);
+	node->set_property ("n_midi_outputs", n_midi_outputs);
+
+	node->set_property ("is_instrument",        is_instrument);
 	node->set_property ("can_process_replace",  can_process_replace);
 	node->set_property ("has_editor",           has_editor);
 	return *node;
