@@ -1,3 +1,4 @@
+#if 0
 /*
  * Copyright (C) 2014-2016 Robin Gareus <robin@gareus.org>
  *
@@ -68,3 +69,4 @@ LIBARDOUR_API extern std::vector<VSTInfo*> * vstfx_get_info_mac (char *, enum VS
 
 #endif /* __vstfx_h__ */
 
+#endif
