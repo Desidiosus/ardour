@@ -1107,7 +1107,7 @@ bool
 PluginManager::run_vst2_scanner_app (std::string path, PluginScanLogEntry& psle) const
 {
 	char **argp= (char**) calloc (5, sizeof (char*));
-	argp[0] = strdup (vst3_scanner_bin_path.c_str ());
+	argp[0] = strdup (vst2_scanner_bin_path.c_str ());
 	argp[1] = strdup ("-f");
 	argp[2] = strdup ("-f"); // -v
 	argp[3] = strdup (path.c_str ());
@@ -1555,7 +1555,7 @@ PluginManager::vst2_lx_plugin (string const& path, VST2Info const& nfo)
 	if (!_lxvst_plugin_info->empty()) {
 		for (PluginInfoList::iterator i =_lxvst_plugin_info->begin(); i != _lxvst_plugin_info->end(); ++i) {
 			if ((info->type == (*i)->type)&&(info->unique_id == (*i)->unique_id)) {
-				psle.msg (PluginScanLogEntry::Error, string_compose (_("Ignoring plugin '%1'. VST-ID conflicts with other plugin"), info->name));
+				psle.msg (PluginScanLogEntry::Error, string_compose (_("Ignoring plugin '%1'. VST-ID conflicts with other plugin '%2' files: '%3' vs '%4'"), info->name, (*i)->name, info->path, (*i)->path));
 				duplicate = true;
 				continue;
 			}
