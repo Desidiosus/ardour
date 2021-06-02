@@ -470,10 +470,10 @@ ARDOUR::vst2_valid_cache_file (std::string const& path, bool verbose)
 	}
 
 	GStatBuf sb_vst;
-	GStatBuf sb_v3i;
+	GStatBuf sb_v2i;
 
-	if (g_stat (path.c_str(), &sb_vst) == 0 && g_stat (cache_file.c_str (), &sb_v3i) == 0) {
-		if (sb_vst.st_mtime < sb_v3i.st_mtime) {
+	if (g_stat (path.c_str(), &sb_vst) == 0 && g_stat (cache_file.c_str (), &sb_v2i) == 0) {
+		if (sb_vst.st_mtime < sb_v2i.st_mtime) {
 			/* plugin is older than cache file */
 			if (verbose) {
 				PBD::info << "Cache file is up-to-date." << endmsg;
@@ -490,11 +490,11 @@ static void
 touch_cachefile (std::string const& path, std::string const& cache_file)
 {
 	GStatBuf sb_vst;
-	GStatBuf sb_v3i;
-	if (g_stat (path.c_str(), &sb_vst) == 0 && g_stat (cache_file.c_str (), &sb_v3i) == 0) {
+	GStatBuf sb_v2i;
+	if (g_stat (path.c_str(), &sb_vst) == 0 && g_stat (cache_file.c_str (), &sb_v2i) == 0) {
 		struct utimbuf utb;
-		utb.actime = sb_v3i.st_atime;
-		utb.modtime = std::max (sb_vst.st_mtime, sb_v3i.st_mtime);
+		utb.actime = sb_v2i.st_atime;
+		utb.modtime = std::max (sb_vst.st_mtime, sb_v2i.st_mtime);
 		g_utime (cache_file.c_str (), &utb);
 	}
 }
