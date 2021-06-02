@@ -2579,6 +2579,7 @@ Editor::add_region_drag (ArdourCanvas::Item* item, GdkEvent*, RegionView* region
 			_drags->add (new RegionSpliceDrag (this, item, region_view, selection->regions.by_layer()));
 			break;
 		case Ripple:
+		case RippleAll:
 			_drags->add (new RegionRippleDrag (this, item, region_view, selection->regions.by_layer()));
 			break;
 		default:
