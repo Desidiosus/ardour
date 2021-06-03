@@ -1144,336 +1144,47 @@ PluginManager::run_vst2_scanner_app (std::string path, PluginScanLogEntry& psle)
 	return true;
 }
 
-#endif
-
-
-#ifdef WINDOWS_VST_SUPPORT
-
-void
-PluginManager::windows_vst_refresh (bool cache_only)
-{
-	if (_windows_vst_plugin_info) {
-		_windows_vst_plugin_info->clear ();
-	} else {
-		_windows_vst_plugin_info = new ARDOUR::PluginInfoList();
-	}
-
-	windows_vst_discover_from_path (Config->get_plugin_path_vst(), cache_only);
-	if (!cache_only) {
-		/* ensure that VST path is flushed to disk */
-		Config->save_state();
-	}
-}
-
-static bool windows_vst_filter (const string& str, void * /*arg*/)
-{
-	/* Not a dotfile, has a prefix before a period, suffix is "dll" */
-	return str[0] != '.' && str.length() > 4 && strings_equal_ignore_case (".dll", str.substr(str.length() - 4));
-}
-
-int
-PluginManager::windows_vst_discover_from_path (string path, bool cache_only)
-{
-	vector<string> plugin_objects;
-	vector<string>::iterator x;
-	int ret = 0;
-
-	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Discovering Windows VST plugins along %1\n", path));
-
-	if (Session::get_disable_all_loaded_plugins ()) {
-		info << _("Disabled WindowsVST scan (safe mode)") << endmsg;
-		return -1;
-	}
-
-	if (Config->get_verbose_plugin_scan()) {
-		info << string_compose (_("--- Windows VST plugins Scan: %1"), path) << endmsg;
-	}
-
-	find_files_matching_filter (plugin_objects, path, windows_vst_filter, 0, false, true, true);
-
-	for (x = plugin_objects.begin(); x != plugin_objects.end (); ++x) {
-		ARDOUR::PluginScanMessage(_("VST"), *x, !cache_only && !cancelled());
-		windows_vst_discover (*x, cache_only || cancelled());
-	}
-
-	if (Config->get_verbose_plugin_scan()) {
-		info << _("--- Windows VST plugins Scan Done") << endmsg;
-	}
-
-	return ret;
-}
-int
-PluginManager::windows_vst_discover (string path, bool cache_only)
-{
-	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("windows_vst_discover '%1'\n", path));
-
-	if (Config->get_verbose_plugin_scan()) {
-		if (cache_only) {
-			info << string_compose (_(" *  %1 (cache only)"), path) << endmsg;
-		} else {
-			info << string_compose (_(" *  %1"), path) << endmsg;
-		}
-	}
-
-	_cancel_timeout = false;
-	vector<VSTInfo*> * finfos = vstfx_get_info_fst (const_cast<char *> (path.c_str()),
-			cache_only ? VST_SCAN_CACHE_ONLY : VST_SCAN_USE_APP);
-
-	// TODO get extended error messae from vstfx_get_info_fst() e.g blacklisted, 32/64bit compat,
-	// .err file scanner output etc.
-
-	if (finfos->empty()) {
-		DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot get Windows VST information from '%1'\n", path));
-		if (Config->get_verbose_plugin_scan()) {
-			info << _(" -> Cannot get Windows VST information, plugin ignored.") << endmsg;
-		}
-		return -1;
-	}
-
-	uint32_t discovered = 0;
-	for (vector<VSTInfo *>::iterator x = finfos->begin(); x != finfos->end(); ++x) {
-		VSTInfo* finfo = *x;
-
-		if (!finfo->canProcessReplacing) {
-			warning << string_compose (_("VST plugin %1 does not support processReplacing, and cannot be used in %2 at this time"),
-							 finfo->name, PROGRAM_NAME)
-				<< endl;
-			continue;
-		}
-
-		PluginInfoPtr info (new WindowsVSTPluginInfo (finfo));
-		info->path = path;
-
-		/* what a joke freeware VST is */
-		if (!strcasecmp ("The Unnamed plugin", finfo->name)) {
-			info->name = PBD::basename_nosuffix (path);
-		}
-
-		/* if we don't have any tags for this plugin, make some up. */
-		set_tags (info->type, info->unique_id, info->category, info->name, FromPlug);
-
-		// TODO: check dup-IDs (lxvst AND windows vst)
-		bool duplicate = false;
-
-		if (!_windows_vst_plugin_info->empty()) {
-			for (PluginInfoList::iterator i =_windows_vst_plugin_info->begin(); i != _windows_vst_plugin_info->end(); ++i) {
-				if ((info->type == (*i)->type) && (info->unique_id == (*i)->unique_id)) {
-					warning << string_compose (_("Ignoring duplicate Windows VST plugin \"%1\""), info->name) << endmsg;
-					duplicate = true;
-					break;
-				}
-			}
-		}
-
-		if (!duplicate) {
-			DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Windows VST plugin ID '%1'\n", info->unique_id));
-			_windows_vst_plugin_info->push_back (info);
-			discovered++;
-			if (Config->get_verbose_plugin_scan()) {
-				PBD::info << string_compose (_(" -> OK (VST Plugin \"%1\" was added)."), info->name) << endmsg;
-			}
-		}
-	}
-
-	vstfx_free_info_list (finfos);
-	return discovered > 0 ? 0 : -1;
-}
-
-#endif // WINDOWS_VST_SUPPORT
-
-#ifdef MACVST_SUPPORT
-void
-PluginManager::mac_vst_refresh (bool cache_only)
-{
-	if (_mac_vst_plugin_info) {
-		_mac_vst_plugin_info->clear ();
-	} else {
-		_mac_vst_plugin_info = new ARDOUR::PluginInfoList();
-	}
-
-	mac_vst_discover_from_path ("~/Library/Audio/Plug-Ins/VST:/Library/Audio/Plug-Ins/VST", cache_only);
-	if (!cache_only) {
-		/* ensure that VST path is flushed to disk */
-		Config->save_state();
-	}
-}
-
-static bool mac_vst_filter (const string& str)
-{
-	string plist = Glib::build_filename (str, "Contents", "Info.plist");
-	if (!Glib::file_test (plist, Glib::FILE_TEST_IS_REGULAR)) {
-		return false;
-	}
-	return str[0] != '.' && str.length() > 4 && strings_equal_ignore_case (".vst", str.substr(str.length() - 4));
-}
-
-int
-PluginManager::mac_vst_discover_from_path (string path, bool cache_only)
-{
-	if (Session::get_disable_all_loaded_plugins ()) {
-		info << _("Disabled MacVST scan (safe mode)") << endmsg;
-		return -1;
-	}
-
-	Searchpath paths (path);
-	/* customized version of run_functor_for_paths() */
-	for (vector<string>::const_iterator i = paths.begin(); i != paths.end(); ++i) {
-		string expanded_path = path_expand (*i);
-		if (!Glib::file_test (expanded_path, Glib::FILE_TEST_IS_DIR)) continue;
-		try {
-			Glib::Dir dir(expanded_path);
-			for (Glib::DirIterator di = dir.begin(); di != dir.end(); di++) {
-				string fullpath = Glib::build_filename (expanded_path, *di);
-
-				/* we're only interested in bundles */
-				if (!Glib::file_test (fullpath, Glib::FILE_TEST_IS_DIR)) {
-					continue;
-				}
-
-				if (mac_vst_filter (fullpath)) {
-					ARDOUR::PluginScanMessage(_("MacVST"), fullpath, !cache_only && !cancelled());
-					mac_vst_discover (fullpath, cache_only || cancelled());
-					continue;
-				}
-
-				/* don't descend into AU bundles in the VST dir */
-				if (fullpath[0] == '.' || (fullpath.length() > 10 && strings_equal_ignore_case (".component", fullpath.substr(fullpath.length() - 10)))) {
-					continue;
-				}
-
-				/* recurse */
-				mac_vst_discover_from_path (fullpath, cache_only);
-			}
-		} catch (Glib::FileError& err) { }
-	}
-
-	return 0;
-}
-
-int
-PluginManager::mac_vst_discover (string path, bool cache_only)
-{
-	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("checking apparent MacVST plugin at %1\n", path));
-
-	_cancel_timeout = false;
-
-	vector<VSTInfo*>* finfos = vstfx_get_info_mac (const_cast<char *> (path.c_str()),
-			cache_only ? VST_SCAN_CACHE_ONLY : VST_SCAN_USE_APP);
-
-	if (finfos->empty()) {
-		DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Cannot get Mac VST information from '%1'\n", path));
-		return -1;
-	}
-
-	uint32_t discovered = 0;
-	for (vector<VSTInfo *>::iterator x = finfos->begin(); x != finfos->end(); ++x) {
-		VSTInfo* finfo = *x;
-
-		if (!finfo->canProcessReplacing) {
-			warning << string_compose (_("Mac VST plugin %1 does not support processReplacing, and so cannot be used in %2 at this time"),
-							 finfo->name, PROGRAM_NAME)
-				<< endl;
-			continue;
-		}
-
-		PluginInfoPtr info (new MacVSTPluginInfo (finfo));
-		info->path = path;
-
-		/* if we don't have any tags for this plugin, make some up. */
-		set_tags (info->type, info->unique_id, info->category, info->name, FromPlug);
-
-		bool duplicate = false;
-		if (!_mac_vst_plugin_info->empty()) {
-			for (PluginInfoList::iterator i =_mac_vst_plugin_info->begin(); i != _mac_vst_plugin_info->end(); ++i) {
-				if ((info->type == (*i)->type)&&(info->unique_id == (*i)->unique_id)) {
-					warning << "Ignoring duplicate Mac VST plugin " << info->name << "\n";
-					duplicate = true;
-					break;
-				}
-			}
-		}
-
-		if (!duplicate) {
-			_mac_vst_plugin_info->push_back (info);
-			discovered++;
-		}
-	}
-
-	vstfx_free_info_list (finfos);
-	return discovered > 0 ? 0 : -1;
-}
-
-#endif // MAC_VST_SUPPORT
-
-#ifdef LXVST_SUPPORT
-
-void
-PluginManager::lxvst_refresh (bool cache_only)
-{
-	if (_lxvst_plugin_info) {
-		_lxvst_plugin_info->clear ();
-	} else {
-		_lxvst_plugin_info = new ARDOUR::PluginInfoList();
-	}
-
-	lxvst_discover_from_path (Config->get_plugin_path_lxvst(), cache_only);
-	if (!cache_only) {
-		/* ensure that VST path is flushed to disk */
-		Config->save_state();
-	}
-}
-
-static bool lxvst_filter (const string& str, void *)
-{
-	/* Not a dotfile, has a prefix before a period, suffix is "so" */
-
-	return str[0] != '.' && (str.length() > 3 && str.find (".so") == (str.length() - 3));
-}
-
-int
-PluginManager::lxvst_discover_from_path (string path, bool cache_only)
-{
-	vector<string> plugin_objects;
-	vector<string>::iterator x;
-	int ret = 0;
-
-	if (Session::get_disable_all_loaded_plugins ()) {
-		info << _("Disabled LinuxVST scan (safe mode)") << endmsg;
-		return -1;
-	}
-
-#ifndef NDEBUG
-	(void) path;
-#endif
-
-	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Discovering linuxVST plugins along %1\n", path));
-
-	find_files_matching_filter (plugin_objects, Config->get_plugin_path_lxvst(), lxvst_filter, 0, false, true, true);
-
-	for (x = plugin_objects.begin(); x != plugin_objects.end (); ++x) {
-		ARDOUR::PluginScanMessage(_("LXVST"), *x, !cache_only && !cancelled());
-		lxvst_discover (*x, cache_only || cancelled());
-	}
-
-	return ret;
-}
-
 bool
-PluginManager::vst2_lx_plugin (string const& path, VST2Info const& nfo)
+PluginManager::vst2_plugin (string const& path, PluginType type, VST2Info const& nfo)
 {
-	PluginScanLogEntry& psle (scan_log_entry (LXVST, path));
+	PluginScanLogEntry& psle (scan_log_entry (type, path));
 
 	if (!nfo.can_process_replace) {
 		psle.msg (PluginScanLogEntry::Error, string_compose (_("plugin '%1' does not support processReplacing, and so cannot be used in %2 at this time"), nfo.name, PROGRAM_NAME));
 		return false;
 	}
 
-	PluginInfoPtr info (new LXVSTPluginInfo (nfo));
+	PluginInfoPtr info;
+	ARDOUR::PluginInfoList* plist;
 
+	switch (type) {
+#ifdef WINDOWS_VST_SUPPORT
+		case ARDOUR::Windows_VST:
+			info = PluginInfoPtr(new WindowsVSTPluginInfo (nfo));
+			plist = _windows_vst_plugin_info;
+			break;
+#endif
+#ifdef LXVST_SUPPORT
+		case ARDOUR::LXVST:
+			info = PluginInfoPtr(new LXVSTPluginInfo (nfo));
+			plist = _lxvst_plugin_info;
+			break;
+#endif
+#ifdef MACVST_SUPPORT
+		case ARDOUR::MacVST:
+			info = PluginInfoPtr(new MacVSTPluginInfo (nfo));
+			plist = _mac_vst_plugin_info;
+			break;
+#endif
+		default:
+			assert (0);
+			return false;
+	}
+
+	/* what a joke freeware VST is */
 	if (!strcasecmp ("The Unnamed plugin", info->name.c_str())) {
 		info->name = PBD::basename_nosuffix (path);
 	}
-
 
 	/* Make sure we don't find the same plugin in more than one place along
 	 * the LXVST_PATH We can't use a simple 'find' because the path is included
@@ -1484,8 +1195,8 @@ PluginManager::vst2_lx_plugin (string const& path, VST2Info const& nfo)
 
 	// TODO: check dup-IDs with windowsVST, too
 	bool duplicate = false;
-	if (!_lxvst_plugin_info->empty()) {
-		for (PluginInfoList::iterator i =_lxvst_plugin_info->begin(); i != _lxvst_plugin_info->end(); ++i) {
+	if (!plist->empty()) {
+		for (PluginInfoList::iterator i =plist->begin(); i != plist->end(); ++i) {
 			if ((info->type == (*i)->type)&&(info->unique_id == (*i)->unique_id)) {
 				psle.msg (PluginScanLogEntry::Error, string_compose (_("Ignoring plugin '%1'. VST-ID conflicts with other plugin '%2' files: '%3' vs '%4'"), info->name, (*i)->name, info->path, (*i)->path));
 				duplicate = true;
@@ -1498,8 +1209,7 @@ PluginManager::vst2_lx_plugin (string const& path, VST2Info const& nfo)
 		return false;
 	}
 
-	_lxvst_plugin_info->push_back (info);
-
+	plist->push_back (info);
 	psle.add (info);
 
 	if (!info->category.empty ()) {
@@ -1509,11 +1219,11 @@ PluginManager::vst2_lx_plugin (string const& path, VST2Info const& nfo)
 }
 
 int
-PluginManager::lxvst_discover (string path, bool cache_only)
+PluginManager::vst2_discover (string path, ARDOUR::PluginType type, bool cache_only)
 {
 	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("checking apparent LXVST plugin at %1\n", path));
 
-	PluginScanLogEntry& psle (scan_log_entry (LXVST, path));
+	PluginScanLogEntry& psle (scan_log_entry (type, path));
 
 	if (vst2_is_blacklisted (path)) {
 		psle.msg (PluginScanLogEntry::Blacklisted);
@@ -1597,7 +1307,7 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 	for (XMLNodeConstIterator i = tree.root()->children().begin(); i != tree.root()->children().end(); ++i) {
 		try {
 			VST2Info nfo (**i);
-			if (vst2_lx_plugin (path, nfo)) {
+			if (vst2_plugin (path, type, nfo)) {
 				++discovered;
 			}
 		} catch (...) {
@@ -1608,6 +1318,190 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 	}
 
 	return discovered;
+}
+
+#endif
+
+
+#ifdef WINDOWS_VST_SUPPORT
+
+void
+PluginManager::windows_vst_refresh (bool cache_only)
+{
+	if (_windows_vst_plugin_info) {
+		_windows_vst_plugin_info->clear ();
+	} else {
+		_windows_vst_plugin_info = new ARDOUR::PluginInfoList();
+	}
+
+	windows_vst_discover_from_path (Config->get_plugin_path_vst(), cache_only);
+	if (!cache_only) {
+		/* ensure that VST path is flushed to disk */
+		Config->save_state();
+	}
+}
+
+static bool windows_vst_filter (const string& str, void * /*arg*/)
+{
+	/* Not a dotfile, has a prefix before a period, suffix is "dll" */
+	return str[0] != '.' && str.length() > 4 && strings_equal_ignore_case (".dll", str.substr(str.length() - 4));
+}
+
+int
+PluginManager::windows_vst_discover_from_path (string path, bool cache_only)
+{
+	vector<string> plugin_objects;
+	vector<string>::iterator x;
+	int ret = 0;
+
+	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Discovering Windows VST plugins along %1\n", path));
+
+	if (Session::get_disable_all_loaded_plugins ()) {
+		info << _("Disabled WindowsVST scan (safe mode)") << endmsg;
+		return -1;
+	}
+
+	if (Config->get_verbose_plugin_scan()) {
+		info << string_compose (_("--- Windows VST plugins Scan: %1"), path) << endmsg;
+	}
+
+	find_files_matching_filter (plugin_objects, path, windows_vst_filter, 0, false, true, true);
+
+	for (x = plugin_objects.begin(); x != plugin_objects.end (); ++x) {
+		ARDOUR::PluginScanMessage(_("VST"), *x, !cache_only && !cancelled());
+		vst2_discover (*x, Windows_VST, cache_only || cancelled());
+	}
+
+	if (Config->get_verbose_plugin_scan()) {
+		info << _("--- Windows VST plugins Scan Done") << endmsg;
+	}
+
+	return ret;
+}
+#endif // WINDOWS_VST_SUPPORT
+
+#ifdef MACVST_SUPPORT
+void
+PluginManager::mac_vst_refresh (bool cache_only)
+{
+	if (_mac_vst_plugin_info) {
+		_mac_vst_plugin_info->clear ();
+	} else {
+		_mac_vst_plugin_info = new ARDOUR::PluginInfoList();
+	}
+
+	mac_vst_discover_from_path ("~/Library/Audio/Plug-Ins/VST:/Library/Audio/Plug-Ins/VST", cache_only);
+	if (!cache_only) {
+		/* ensure that VST path is flushed to disk */
+		Config->save_state();
+	}
+}
+
+static bool mac_vst_filter (const string& str)
+{
+	string plist = Glib::build_filename (str, "Contents", "Info.plist");
+	if (!Glib::file_test (plist, Glib::FILE_TEST_IS_REGULAR)) {
+		return false;
+	}
+	return str[0] != '.' && str.length() > 4 && strings_equal_ignore_case (".vst", str.substr(str.length() - 4));
+}
+
+int
+PluginManager::mac_vst_discover_from_path (string path, bool cache_only)
+{
+	if (Session::get_disable_all_loaded_plugins ()) {
+		info << _("Disabled MacVST scan (safe mode)") << endmsg;
+		return -1;
+	}
+
+	Searchpath paths (path);
+	/* customized version of run_functor_for_paths() */
+	for (vector<string>::const_iterator i = paths.begin(); i != paths.end(); ++i) {
+		string expanded_path = path_expand (*i);
+		if (!Glib::file_test (expanded_path, Glib::FILE_TEST_IS_DIR)) continue;
+		try {
+			Glib::Dir dir(expanded_path);
+			for (Glib::DirIterator di = dir.begin(); di != dir.end(); di++) {
+				string fullpath = Glib::build_filename (expanded_path, *di);
+
+				/* we're only interested in bundles */
+				if (!Glib::file_test (fullpath, Glib::FILE_TEST_IS_DIR)) {
+					continue;
+				}
+
+				if (mac_vst_filter (fullpath)) {
+					ARDOUR::PluginScanMessage(_("MacVST"), fullpath, !cache_only && !cancelled());
+					vst2_discover (fullpath, MacVST, cache_only || cancelled());
+					continue;
+				}
+
+				/* don't descend into AU bundles in the VST dir */
+				if (fullpath[0] == '.' || (fullpath.length() > 10 && strings_equal_ignore_case (".component", fullpath.substr(fullpath.length() - 10)))) {
+					continue;
+				}
+
+				/* recurse */
+				mac_vst_discover_from_path (fullpath, cache_only);
+			}
+		} catch (Glib::FileError& err) { }
+	}
+
+	return 0;
+}
+
+#endif // MAC_VST_SUPPORT
+
+#ifdef LXVST_SUPPORT
+
+void
+PluginManager::lxvst_refresh (bool cache_only)
+{
+	if (_lxvst_plugin_info) {
+		_lxvst_plugin_info->clear ();
+	} else {
+		_lxvst_plugin_info = new ARDOUR::PluginInfoList();
+	}
+
+	lxvst_discover_from_path (Config->get_plugin_path_lxvst(), cache_only);
+	if (!cache_only) {
+		/* ensure that VST path is flushed to disk */
+		Config->save_state();
+	}
+}
+
+static bool lxvst_filter (const string& str, void *)
+{
+	/* Not a dotfile, has a prefix before a period, suffix is "so" */
+
+	return str[0] != '.' && (str.length() > 3 && str.find (".so") == (str.length() - 3));
+}
+
+int
+PluginManager::lxvst_discover_from_path (string path, bool cache_only)
+{
+	vector<string> plugin_objects;
+	vector<string>::iterator x;
+	int ret = 0;
+
+	if (Session::get_disable_all_loaded_plugins ()) {
+		info << _("Disabled LinuxVST scan (safe mode)") << endmsg;
+		return -1;
+	}
+
+#ifndef NDEBUG
+	(void) path;
+#endif
+
+	DEBUG_TRACE (DEBUG::PluginManager, string_compose ("Discovering linuxVST plugins along %1\n", path));
+
+	find_files_matching_filter (plugin_objects, Config->get_plugin_path_lxvst(), lxvst_filter, 0, false, true, true);
+
+	for (x = plugin_objects.begin(); x != plugin_objects.end (); ++x) {
+		ARDOUR::PluginScanMessage(_("LXVST"), *x, !cache_only && !cancelled());
+		vst2_discover (*x, LXVST, cache_only || cancelled());
+	}
+
+	return ret;
 }
 
 #endif // LXVST_SUPPORT
