@@ -599,7 +599,7 @@ vst2_save_cache_file (std::string const& path, XMLNode* root, bool verbose)
 }
 
 bool
-ARDOUR::vst2_scan_and_cache (std::string const& path, ARDOUR::PluginType type, boost::function<void (std::string const&, VST2Info const&)> cb, bool verbose)
+ARDOUR::vst2_scan_and_cache (std::string const& path, ARDOUR::PluginType type, boost::function<void (std::string const&, PluginType, VST2Info const&)> cb, bool verbose)
 {
 	XMLNode* root = new XMLNode ("VST2Cache");
 	root->set_property ("version", 1);
@@ -624,7 +624,7 @@ ARDOUR::vst2_scan_and_cache (std::string const& path, ARDOUR::PluginType type, b
 			return false;
 		}
 		for (std::vector<VST2Info>::const_iterator i = nfo.begin(); i != nfo.end(); ++i) {
-			cb (path, *i);
+			cb (path, type, *i);
 			root->add_child_nocopy (i->state ());
 		}
 	} catch (...) {

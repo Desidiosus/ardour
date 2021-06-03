@@ -71,7 +71,7 @@ LIBARDOUR_API extern std::string
 vst2_valid_cache_file (std::string const& path, bool verbose = false);
 
 LIBARDOUR_API extern bool
-vst2_scan_and_cache (std::string const& path, ARDOUR::PluginType, boost::function<void (std::string const&, VST2Info const&)> cb, bool verbose = false);
+vst2_scan_and_cache (std::string const& path, ARDOUR::PluginType, boost::function<void (std::string const&, PluginType, VST2Info const&)> cb, bool verbose = false);
 
 } // namespace ARDOUR
 

@@ -109,7 +109,7 @@ static std::string vst2_id_to_str (int32_t id)
 	return rv;
 }
 
-static void vst2_plugin (std::string const& module_path, VST2Info const& i)
+static void vst2_plugin (std::string const& module_path, PluginType, VST2Info const& i)
 {
 	info << "Found Plugin: '" << vst2_id_to_str (i.id) << "' " << i.name << endmsg;
 }
