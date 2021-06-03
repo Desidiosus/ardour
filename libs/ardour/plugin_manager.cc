@@ -50,13 +50,6 @@
 #include "fst.h"
 #include "pbd/basename.h"
 #include <cstring>
-
-// dll-info
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdint.h>
-
 #endif // WINDOWS_VST_SUPPORT
 
 #ifdef LXVST_SUPPORT
@@ -1209,67 +1202,6 @@ PluginManager::windows_vst_discover_from_path (string path, bool cache_only)
 
 	return ret;
 }
-
-static std::string dll_info (std::string path) {
-	std::string rv;
-	uint8_t buf[68];
-	uint16_t type = 0;
-	off_t pe_hdr_off = 0;
-
-	int fd = g_open(path.c_str(), O_RDONLY, 0444);
-
-	if (fd < 0) {
-		return _("cannot open dll"); // TODO strerror()
-	}
-
-	if (68 != read (fd, buf, 68)) {
-		rv = _("invalid dll, file too small");
-		goto errorout;
-	}
-	if (buf[0] != 'M' && buf[1] != 'Z') {
-		rv = _("not a dll");
-		goto errorout;
-	}
-
-	pe_hdr_off = *((int32_t*) &buf[60]);
-	if (pe_hdr_off !=lseek (fd, pe_hdr_off, SEEK_SET)) {
-		rv = _("cannot determine dll type");
-		goto errorout;
-	}
-	if (6 != read (fd, buf, 6)) {
-		rv = _("cannot read dll PE header");
-		goto errorout;
-	}
-
-	if (buf[0] != 'P' && buf[1] != 'E') {
-		rv = _("invalid dll PE header");
-		goto errorout;
-	}
-
-	type = *((uint16_t*) &buf[4]);
-	switch (type) {
-		case 0x014c:
-			rv = _("i386 (32-bit)");
-			break;
-		case  0x0200:
-			rv = _("Itanium");
-			break;
-		case 0x8664:
-			rv = _("x64 (64-bit)");
-			break;
-		case 0:
-			rv = _("Native Architecture");
-			break;
-		default:
-			rv = _("Unknown Architecture");
-			break;
-	}
-errorout:
-	assert (rv.length() > 0);
-	close (fd);
-	return rv;
-}
-
 int
 PluginManager::windows_vst_discover (string path, bool cache_only)
 {
@@ -1279,7 +1211,7 @@ PluginManager::windows_vst_discover (string path, bool cache_only)
 		if (cache_only) {
 			info << string_compose (_(" *  %1 (cache only)"), path) << endmsg;
 		} else {
-			info << string_compose (_(" *  %1 - %2"), path, dll_info (path)) << endmsg;
+			info << string_compose (_(" *  %1"), path) << endmsg;
 		}
 	}
 
@@ -1611,7 +1543,6 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 		if (!tree.root()->get_property ("version", cf_version) || cf_version < 1) {
 			run_scan = true;
 		}
-		// TODO check if arch matches
 	} else {
 		/* failed to parse XML */
 		run_scan = true;
@@ -1651,6 +1582,13 @@ PluginManager::lxvst_discover (string path, bool cache_only)
 	std::string binary;
 	if (!tree.root()->get_property ("binary", binary) || binary != path) {
 		psle.msg (PluginScanLogEntry::Skipped, string_compose (_("Invalid VST2 cache file '%1'"), cache_file)); // XXX log as error msg
+		return -1;
+	}
+
+	std::string arch;
+	if (!tree.root()->get_property ("arch", arch) || arch != vst2_arch ()) {
+		psle.msg (PluginScanLogEntry::Incompatible, string_compose (_("VST2 architecture mismatches '%1'"), arch));
+		return -1;
 	}
 
 	vst2_whitelist (path);
