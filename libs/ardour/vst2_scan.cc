@@ -30,6 +30,12 @@
 
 #ifndef PLATFORM_WINDOWS
 #include <sys/utsname.h>
+#else
+// dll-info
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdint.h>
 #endif
 
 
@@ -328,24 +334,98 @@ vst2_instantiate (VSTHandle* h, ARDOUR::PluginType type)
 	return s;
 }
 
-
+#ifdef PLATFORM_WINDOWS
 static std::string
-vst2_arch (const char* dllpath, ARDOUR::PluginType type)
+dll_info (std::string path)
 {
-	switch (type) {
-#ifdef WINDOWS_VST_SUPPORT
-		case ARDOUR::Windows_VST:
-			// dll_info
-			break;
-#endif
-		default:
-			break;
+	std::string rv;
+	uint8_t buf[68];
+	uint16_t type = 0;
+	off_t pe_hdr_off = 0;
+
+	int fd = g_open(path.c_str(), O_RDONLY, 0444);
+
+	if (fd < 0) {
+		return _("cannot open dll"); // TODO strerror()
 	}
 
-# if ( defined(__x86_64__) || defined(_M_X64) )
+	if (68 != read (fd, buf, 68)) {
+		rv = _("invalid dll, file too small");
+		goto errorout;
+	}
+	if (buf[0] != 'M' && buf[1] != 'Z') {
+		rv = _("not a dll");
+		goto errorout;
+	}
+
+	pe_hdr_off = *((int32_t*) &buf[60]);
+	if (pe_hdr_off !=lseek (fd, pe_hdr_off, SEEK_SET)) {
+		rv = _("cannot determine dll type");
+		goto errorout;
+	}
+	if (6 != read (fd, buf, 6)) {
+		rv = _("cannot read dll PE header");
+		goto errorout;
+	}
+
+	if (buf[0] != 'P' && buf[1] != 'E') {
+		rv = _("invalid dll PE header");
+		goto errorout;
+	}
+
+	type = *((uint16_t*) &buf[4]);
+	switch (type) {
+		case 0x014c:
+			rv = _("i386 (32-bit)");
+			break;
+		case  0x0200:
+			rv = _("Itanium");
+			break;
+		case 0x8664:
+			rv = _("x64 (64-bit)");
+			break;
+		case 0:
+			rv = _("Native Architecture");
+			break;
+		default:
+			rv = _("Unknown Architecture");
+			break;
+	}
+errorout:
+	assert (rv.length() > 0);
+	close (fd);
+	return rv;
+}
+#endif
+
+std::string
+ARDOUR::vst2_arch ()
+{
+#ifndef PLATFORM_WINDOWS
+	struct utsname utb;
+	if (uname (&utb) >= 0) {
+		return utb.machine;
+	}
+#endif
+
+#if ( defined(__x86_64__) || defined(_M_X64) )
 	return "x86_64";
-#else
+#elif defined __i386__  || defined _M_IX86
 	return "i386";
+#elif defined __ppc__ && defined  __LP64__
+	return "ppc64";
+#elif defined __ppc__
+	return "ppc";
+#elif defined  __aarch64__
+	return "aarch64";
+#elif defined  __arm__ && defined __ARM_NEON
+	return "armhf";
+#elif defined  __arm__
+	return "arm";
+#elif defined  __LP64__
+	return "x64";
+#else
+	return "x32";
 #endif
 }
 
@@ -524,7 +604,13 @@ ARDOUR::vst2_scan_and_cache (std::string const& path, ARDOUR::PluginType type, b
 	XMLNode* root = new XMLNode ("VST2Cache");
 	root->set_property ("version", 1);
 	root->set_property ("binary", path);
-	root->set_property ("arch", ""); // dll_info()
+	root->set_property ("arch", vst2_arch ());
+
+#ifdef PLATFORM_WINDOWS
+	if (type == ARDOUR::Windows_VST) {
+		PBD::info << "File type: " << dll_info (path) << endmsg;
+	}
+#endif
 
 	try {
 		std::vector<VST2Info> nfo;

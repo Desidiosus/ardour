@@ -62,6 +62,9 @@ struct VST2Info {
 };
 
 LIBARDOUR_API extern std::string
+vst2_arch ();
+
+LIBARDOUR_API extern std::string
 vst2_cache_file (std::string const& path);
 
 LIBARDOUR_API extern std::string
